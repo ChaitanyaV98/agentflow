@@ -1,69 +1,58 @@
-import Image from "next/image";
+import { desc } from "drizzle-orm";
+import Link from "next/link";
+import { connection } from "next/server";
+import { Suspense } from "react";
+import { getDb } from "@/db";
+import { runs } from "@/db/schema";
+import { NewRunForm } from "./new-run-form";
+import { StatusBadge } from "./status-badge";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="space-y-10">
+      <section className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">What should the agents do?</h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            A planner splits your goal into steps, an executor does each one with real tools (GitHub, the web,
+            a database, email), a critic checks the work, and you approve anything that can&apos;t be undone.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <NewRunForm />
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Recent runs</h2>
+        <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
+          <RecentRuns />
+        </Suspense>
+      </section>
     </div>
+  );
+}
+
+async function RecentRuns() {
+  await connection(); // read the database at request time, not at build time
+  const rows = await getDb()
+    .select({ id: runs.id, goal: runs.goal, status: runs.status, cost: runs.costUsd, createdAt: runs.createdAt })
+    .from(runs)
+    .orderBy(desc(runs.createdAt))
+    .limit(15);
+
+  if (rows.length === 0) return <p className="text-sm text-zinc-500">No runs yet. Try one of the examples above.</p>;
+
+  return (
+    <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+      {rows.map((r) => (
+        <li key={r.id}>
+          <Link href={`/runs/${r.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+            <StatusBadge status={r.status} />
+            <span className="flex-1 truncate text-sm">{r.goal}</span>
+            <span className="hidden text-xs tabular-nums text-zinc-500 sm:inline">${Number(r.cost).toFixed(4)}</span>
+            <span className="text-xs text-zinc-400">{r.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
