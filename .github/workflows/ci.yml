@@ -22,7 +22,7 @@ jobs:
       - run: npm run build
 
   integration:
-    name: Durable runs + read-only SQL (real Postgres)
+    name: Integration + end-to-end (real Postgres, browser)
     runs-on: ubuntu-latest
     services:
       db:
@@ -50,3 +50,12 @@ jobs:
           PGPASSWORD=agentflow psql -h localhost -p 5435 -U agentflow -d agentflow -v ON_ERROR_STOP=1 -f docker/init.sql
           npm run db:migrate
       - run: npm run test:int
+      - name: Browser end-to-end (scripted model)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/

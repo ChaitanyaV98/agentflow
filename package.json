@@ -18,7 +18,8 @@
     "worker": "tsx scripts/worker.ts",
     "runs": "tsx scripts/runs.ts",
     "test:int": "vitest run --config vitest.int.config.mts",
-    "dev:all": "node scripts/dev-all.mjs"
+    "dev:all": "node scripts/dev-all.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@ai-sdk/groq": "^4.0.76",
@@ -38,6 +39,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/turbopack": "^4",
     "@tailwindcss/typography": "^0.5.20",
     "@types/node": "^24.19.2",

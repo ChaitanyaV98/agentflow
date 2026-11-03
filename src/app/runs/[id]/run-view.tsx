@@ -67,7 +67,9 @@ export function RunView({ initial }: { initial: RunSummary }) {
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge status={run.status} />
+          <span data-testid="run-status">
+            <StatusBadge status={run.status} />
+          </span>
           <span className="text-xs text-zinc-500">
             {conn === "live" ? "● live" : conn === "reconnecting" ? "reconnecting…" : conn === "connecting" ? "connecting…" : ""}
           </span>
