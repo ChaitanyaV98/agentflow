@@ -19,6 +19,12 @@ export type RunStatus =
 export interface PlanStep {
   title: string;
   instructions: string;
+  /**
+   * The only tools this step may use (chosen by the planner, enforced by the engine). Least
+   * privilege per step: a "calculate revenue" step has no email tool, so it can't send one early.
+   * Missing on runs saved before this field existed; then every tool is available.
+   */
+  tools?: string[];
 }
 
 export interface ToolCallRecord {

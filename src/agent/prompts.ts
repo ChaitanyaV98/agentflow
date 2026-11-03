@@ -12,6 +12,9 @@ export const PlanSchema = z.object({
       z.object({
         title: z.string().describe("Short name for the step, e.g. 'Read open issues'"),
         instructions: z.string().describe("What to do in this step, specific enough to act on"),
+        tools: z
+          .array(z.string())
+          .describe("Exact names of the tools this step needs. ONLY these will be available to the step."),
       }),
     )
     .min(1)
@@ -35,6 +38,8 @@ Rules:
   step that gathers the data, or leave it for the final answer, which a writer agent produces after
   all steps from their results.
 - Gather information before acting on it. Any step that changes something (posting) goes last.
+- For each step, list in "tools" exactly the tools it needs; the step gets no others. A tool that
+  changes something (needs approval) belongs ONLY to the one step that performs that action.
 - Most goals need 1–3 steps. Every step costs time, so use as few as the goal allows.`;
 }
 
@@ -53,14 +58,16 @@ Rules:
   facts later steps will need (numbers, names, links), because they only see your result.`;
 
 export function executorPrompt(goal: string, plan: PlanStep[], index: number, previous: StepRecord[], feedback?: string): string {
-  const done = previous
-    .slice(0, index)
-    .map((s, i) => `Step ${i + 1} — ${s.title}\nResult: ${s.result ?? "(none)"}`)
-    .join("\n\n");
+  const earlier = previous.slice(0, index);
+  const done = earlier.map((s, i) => `Step ${i + 1} — ${s.title}\nResult: ${s.result ?? "(none)"}`).join("\n\n");
+  const actions = earlier.flatMap((s, i) => (s.actionsTaken ?? []).map((a) => `- ${a} (step ${i + 1})`));
   return [
     `Overall goal: ${goal}`,
     `Full plan:\n${plan.map((p, i) => `${i + 1}. ${p.title}`).join("\n")}`,
     done ? `Results of earlier steps:\n\n${done}` : "",
+    actions.length
+      ? `Actions ALREADY PERFORMED in this run (do not repeat them; report them instead):\n${actions.join("\n")}`
+      : "",
     `YOUR STEP (${index + 1}): ${plan[index].title}\n${plan[index].instructions}`,
     feedback ? `A reviewer rejected your previous attempt at this step. Fix this:\n${feedback}` : "",
   ]

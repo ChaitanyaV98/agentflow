@@ -49,8 +49,12 @@ export function createMockModel() {
         return text(
           JSON.stringify({
             steps: [
-              { title: "Read the database tables", instructions: "Call sql_list_tables and list the table names." },
-              { title: "Post a status comment", instructions: "Comment 'Checked the shop schema' on issue #1 in acme/demo." },
+              { title: "Read the database tables", instructions: "Call sql_list_tables and list the table names.", tools: ["sql_list_tables"] },
+              {
+                title: "Post a status comment",
+                instructions: "Comment 'Checked the shop schema' on issue #1 in acme/demo.",
+                tools: ["github_comment_issue"],
+              },
             ],
           }),
         );

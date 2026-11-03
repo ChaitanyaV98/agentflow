@@ -20,7 +20,10 @@ const postComment: AgentTool<{ number: number; body: string }> = {
   execute: vi.fn(async () => ({ posted: true })),
 };
 
-const onePlan = { steps: [{ title: "Read issues", instructions: "List open issues in acme/app" }] };
+const onePlan = {
+  steps: [{ title: "Read issues", instructions: "List open issues in acme/app", tools: ["list_issues", "flaky", "broken", "hang"] }],
+};
+const commentPlan = { steps: [{ title: "Comment", instructions: "Comment on #7", tools: ["post_comment"] }] };
 const pass = { verdict: "pass", feedback: "Uses real data." };
 
 function deps(replies: Reply[], tools: AgentTool[] = [listIssues, postComment]): EngineDeps {
@@ -72,7 +75,7 @@ describe("agent engine", () => {
 
   it("pauses before a risky tool and runs it only after approval", async () => {
     const d = deps([
-      { json: { steps: [{ title: "Comment", instructions: "Comment on #7" }] } },
+      { json: commentPlan },
       { toolCalls: [{ name: "post_comment", input: { number: 7, body: "Looking into it" } }] },
       { text: "Comment posted." },
       { json: pass },
@@ -92,7 +95,7 @@ describe("agent engine", () => {
   it("a denied call is reported to the model and never executed", async () => {
     vi.mocked(postComment.execute).mockClear();
     const d = deps([
-      { json: { steps: [{ title: "Comment", instructions: "Comment on #7" }] } },
+      { json: commentPlan },
       { toolCalls: [{ name: "post_comment", input: { number: 7, body: "hi" } }] },
       { text: "The comment was not approved." },
       { json: pass },
@@ -195,7 +198,7 @@ describe("agent engine", () => {
   it("never retries a step that already performed a risky action (no duplicate emails)", async () => {
     vi.mocked(postComment.execute).mockClear();
     const d = deps([
-      { json: { steps: [{ title: "Comment", instructions: "Comment on #7" }] } },
+      { json: commentPlan },
       { toolCalls: [{ name: "post_comment", input: { number: 7, body: "On it" } }] },
       { text: "Done." },
       { json: { verdict: "retry", feedback: "Say what the comment said." } }, // critic wants a redo
@@ -249,6 +252,42 @@ describe("agent engine", () => {
     expect(result).toMatchObject({ ok: false, attempts: 2 });
     expect(result?.type === "tool_result" && result.preview).toMatch(/hang timed out after 20 ms/);
     expect(s.status).toBe("done");
+  });
+
+  it("a step can only use the tools the planner gave it (no emailing during a 'calculate' step)", async () => {
+    vi.mocked(postComment.execute).mockClear();
+    const d = deps([
+      { json: { steps: [{ title: "Calculate", instructions: "Count issues", tools: ["list_issues"] }] } },
+      { toolCalls: [{ name: "post_comment", input: { number: 7, body: "early!" } }] }, // overreach
+      { text: "Counted; did not comment." },
+      { json: pass },
+      { text: "final" },
+    ]);
+
+    const s = await runUntilPause(createRun("goal"), d);
+    expect(s.status).toBe("done"); // no approval pause: the call never got that far
+    expect(postComment.execute).not.toHaveBeenCalled();
+    const result = s.trace.find((e) => e.type === "tool_result");
+    expect(result?.type === "tool_result" && result.preview).toMatch(/not available in this step\. Available: list_issues/);
+    // And the model was only ever offered the allowed tool.
+    const executorCall = (d.model as ReturnType<typeof scriptedModel>).doGenerateCalls[1];
+    expect(executorCall.tools?.map((t) => t.name)).toEqual(["list_issues"]);
+  });
+
+  it("later steps are told which actions earlier steps already performed", async () => {
+    const d = deps([
+      { json: { steps: [commentPlan.steps[0], { title: "Wrap up", instructions: "Summarise", tools: [] }] } },
+      { toolCalls: [{ name: "post_comment", input: { number: 7, body: "hi" } }] },
+      { text: "Commented on #7." },
+      { json: pass },
+      { text: "Summary." },
+      { json: pass },
+      { text: "final" },
+    ]);
+    const paused = await runUntilPause(createRun("goal"), d);
+    const s = await runUntilPause(resolveApproval(paused, true), d);
+    expect(JSON.stringify(s.steps[1].messages[0])).toContain("Actions ALREADY PERFORMED in this run");
+    expect(JSON.stringify(s.steps[1].messages[0])).toContain("post_comment (step 1)");
   });
 
   it("tracks estimated cost and stops at the cost budget", async () => {

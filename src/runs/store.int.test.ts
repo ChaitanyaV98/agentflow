@@ -11,7 +11,7 @@ import { processRun } from "./worker";
 
 const GOAL = "int-test:";
 const pass = { verdict: "pass", feedback: "ok" };
-const onePlan = { steps: [{ title: "Read", instructions: "List issues" }] };
+const onePlan = { steps: [{ title: "Read", instructions: "List issues", tools: ["read", "send"] }] };
 
 const read: AgentTool<object> = { name: "read", description: "", inputSchema: z.object({}), execute: vi.fn(async () => [1, 2]) };
 const send: AgentTool<object> = {

@@ -174,7 +174,7 @@ async function execute(state: RunState, deps: EngineDeps) {
   const result = await callModel(state, deps, "executor", {
     instructions: EXECUTOR_INSTRUCTIONS,
     messages: step.messages,
-    tools: toolDefinitions(deps.tools),
+    tools: toolDefinitions(stepTools(state, deps)),
   });
   step.messages.push(...result.responseMessages);
 
@@ -195,7 +195,8 @@ async function execute(state: RunState, deps: EngineDeps) {
 
 async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDeps) {
   const call = step.pendingCalls[0];
-  const tool = deps.tools.find((t) => t.name === call.toolName);
+  const allowed = stepTools(state, deps);
+  const tool = allowed.find((t) => t.name === call.toolName);
 
   // Approval gate: pause before a risky tool runs, unless a human already decided.
   if (tool?.risky && !call.approval) {
@@ -210,7 +211,10 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
   let attempts = 0;
 
   if (!tool) {
-    output = { type: "error-text", value: `Unknown tool "${call.toolName}". Available: ${deps.tools.map((t) => t.name).join(", ")}` };
+    output = {
+      type: "error-text",
+      value: `Tool "${call.toolName}" is not available in this step. Available: ${allowed.map((t) => t.name).join(", ") || "none"}`,
+    };
   } else if (call.approval === "denied") {
     output = { type: "execution-denied", reason: call.denyReason };
   } else if (tool.risky && call.startedAt) {
@@ -324,6 +328,12 @@ function startStep(state: RunState, deps: EngineDeps, index: number, attempt = 1
   state.stepIndex = index;
   state.status = "executing";
   emit(state, deps, { type: "step_started", step: index, title: p.title, attempt });
+}
+
+/** The tools the current step may use: the planner's allow-list, enforced here. */
+function stepTools(state: RunState, deps: EngineDeps): AgentTool[] {
+  const names = state.plan[state.stepIndex]?.tools;
+  return names ? deps.tools.filter((t) => names.includes(t.name)) : deps.tools;
 }
 
 function currentStep(state: RunState): StepRecord {
