@@ -22,10 +22,12 @@ export const runs = pgTable(
     leaseOwner: text("lease_owner"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     costUsd: numeric("cost_usd", { precision: 10, scale: 6 }).notNull().default("0"),
+    // Who started the run, for per-IP rate limiting on the public demo.
+    clientIp: text("client_ip"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("runs_status_updated_idx").on(t.status, t.updatedAt)],
+  (t) => [index("runs_status_updated_idx").on(t.status, t.updatedAt), index("runs_created_idx").on(t.createdAt)],
 );
 
 /** Append-only log of trace events: what the live UI streams (resumable by event id). */

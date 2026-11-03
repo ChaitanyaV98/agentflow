@@ -30,9 +30,9 @@ export interface StoredRun {
   version: number;
 }
 
-export async function createStoredRun(goal: string, budget: Partial<Budget> = {}): Promise<StoredRun> {
+export async function createStoredRun(goal: string, budget: Partial<Budget> = {}, clientIp?: string): Promise<StoredRun> {
   const state = createRun(goal, budget);
-  await getDb().insert(runs).values({ id: state.id, goal: state.goal, status: state.status, state });
+  await getDb().insert(runs).values({ id: state.id, goal: state.goal, status: state.status, state, clientIp });
   await notifyRunnable();
   return { state, version: 1 };
 }
@@ -101,6 +101,16 @@ export async function claimNextRun(workerId: string, leaseMs = LEASE_MS): Promis
     returning state, version
   `);
   return rows[0] ? { state: rows[0].state, version: rows[0].version } : null;
+}
+
+/** Runs created in the last hour by this IP, and in the last day overall (for rate limiting). */
+export async function recentRunCounts(clientIp: string) {
+  const [row] = await getDb().execute<{ by_ip: number; total: number }>(sql`
+    select count(*) filter (where client_ip = ${clientIp} and created_at > now() - interval '1 hour')::int as by_ip,
+           count(*) filter (where created_at > now() - interval '1 day')::int as total
+    from ${runs}
+  `);
+  return { byIp: row.by_ip, total: row.total };
 }
 
 /** Give a run back (e.g. on graceful shutdown) so another worker can continue it immediately. */
