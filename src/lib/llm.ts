@@ -2,6 +2,7 @@ import { createGroq } from "@ai-sdk/groq";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import type { Pricing } from "@/agent/types";
+import { createMockModel } from "./mock-model";
 
 /**
  * One place to choose the chat model (same pattern as DocMind). The agent only sees
@@ -9,6 +10,7 @@ import type { Pricing } from "@/agent/types";
  *
  *  LLM_PROVIDER=groq   → Groq free tier (fast, good at tool calling; needs GROQ_API_KEY)
  *  LLM_PROVIDER=ollama → a local model through Ollama's OpenAI-compatible API
+ *  LLM_PROVIDER=mock   → a scripted model for end-to-end tests (no network, deterministic)
  */
 export interface ChatModel {
   model: LanguageModel;
@@ -49,5 +51,9 @@ export function getChatModel(): ChatModel {
     return { model: ollama.chatModel(name), id: `ollama:${name}`, pricing: pricing({ inputPerM: 0, outputPerM: 0 }) };
   }
 
-  throw new Error(`Unknown LLM_PROVIDER "${provider}" — use "groq" or "ollama"`);
+  if (provider === "mock") {
+    return { model: createMockModel(), id: "mock:scripted", pricing: { inputPerM: 0, outputPerM: 0 } };
+  }
+
+  throw new Error(`Unknown LLM_PROVIDER "${provider}" — use "groq", "ollama" or "mock"`);
 }
