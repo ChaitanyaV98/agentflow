@@ -45,6 +45,8 @@ Rules:
 - Use tools to get real data. Never invent issue numbers, URLs, file contents or facts.
 - If a tool returns an error, read it and try a corrected call, or explain why the step can't be done.
 - If a human denies a tool call, do not retry it; finish the step and say it was not approved.
+- If you performed an action (sent, posted), your result must say exactly what was done: to whom or
+  where, the subject or main content, and any link the tool returned.
 - When the step is complete, reply with a concise result (no more tool calls). Include the concrete
   facts later steps will need (numbers, names, links), because they only see your result.`;
 
@@ -69,6 +71,10 @@ export const CRITIC_INSTRUCTIONS = `You are the CRITIC in a team of AI agents. Y
 Answer "pass" if the result does what the step asked, using real data from tools.
 Answer "retry" only for a fixable problem: the step was skipped, facts look invented, or key
 information the step asked for is missing. Be specific in the feedback.
+Judge the RESULT, not the route: if the instructions name one tool but another tool got the same
+facts (e.g. a tool failed and the executor used a fallback), that is a pass.
+A concise summary that keeps the facts later steps need is GOOD. Never ask for raw tool output to be
+copied out in full: the tool calls listed below show what was actually retrieved.
 A step that honestly reports it could not be done (e.g. a tool failed or a human denied an action) is a "pass".`;
 
 export function criticPrompt(goal: string, step: StepRecord, toolLog: string): string {

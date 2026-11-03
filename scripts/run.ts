@@ -2,17 +2,26 @@
  * Run an agent from the terminal and watch every step.
  *
  *   npm run agent -- "Triage the 5 newest open issues in vercel/ai and suggest which to fix first"
+ *   npm run agent -- --approve=no "..."   # non-interactive: answer every approval with yes/no
  *
- * Risky tool calls (e.g. posting a comment) pause and ask y/n here.
+ * Tools are discovered from MCP servers (src/mcp/servers), started as child processes.
+ * Risky tool calls (posting a comment, sending email) pause and ask y/n here.
  */
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import { createRun, resolveApproval, runUntilPause } from "@/agent/engine";
 import type { RunState, TimedTraceEvent } from "@/agent/types";
 import { getChatModel } from "@/lib/llm";
-import { githubTools } from "@/tools/github";
+import { connectStdio } from "@/mcp/client";
+import { defaultServers } from "@/mcp/config";
 
-const goal = process.argv.slice(2).join(" ").trim();
+const args = process.argv.slice(2);
+const autoApprove = args.find((a) => a.startsWith("--approve="))?.split("=")[1];
+if (autoApprove && autoApprove !== "yes" && autoApprove !== "no") {
+  console.error("--approve must be yes or no");
+  process.exit(1);
+}
+const goal = args.filter((a) => !a.startsWith("--")).join(" ").trim();
 if (!goal) {
   console.error('Usage: npm run agent -- "<goal>"');
   process.exit(1);
@@ -59,18 +68,30 @@ function print(e: TimedTraceEvent) {
   }
 }
 
+/** Open the prompt only when needed, so runs without approvals never touch stdin. */
+async function ask(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim().toLowerCase() === "y";
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
   const { model, id } = getChatModel();
-  const deps = { model, tools: githubTools, onEvent: print };
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const hub = await connectStdio(defaultServers());
+  for (const s of hub.servers) console.log(dim(`mcp ${s.name}: ${s.tools.join(", ")}`));
+  const deps = { model, tools: hub.tools, onEvent: print };
 
   console.log(dim(`model: ${id}`));
   let state: RunState = await runUntilPause(createRun(goal), deps);
   while (state.status === "awaiting_approval") {
-    const answer = (await rl.question("Approve? [y/N] ")).trim().toLowerCase();
-    state = await runUntilPause(resolveApproval(state, answer === "y", undefined, deps), deps);
+    const approved = autoApprove ? autoApprove === "yes" : await ask("Approve? [y/N] ");
+    if (autoApprove) console.log(`Approve? ${autoApprove} (--approve)`);
+    state = await runUntilPause(resolveApproval(state, approved, undefined, deps), deps);
   }
-  rl.close();
+  await hub.close();
 
   if (state.finalAnswer) console.log(`\n${bold("Answer")}\n${state.finalAnswer}`);
   const { modelCalls, inputTokens, outputTokens } = state.usage;

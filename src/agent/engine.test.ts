@@ -192,6 +192,65 @@ describe("agent engine", () => {
     expect(s.usage.modelCalls).toBe(4);
   });
 
+  it("never retries a step that already performed a risky action (no duplicate emails)", async () => {
+    vi.mocked(postComment.execute).mockClear();
+    const d = deps([
+      { json: { steps: [{ title: "Comment", instructions: "Comment on #7" }] } },
+      { toolCalls: [{ name: "post_comment", input: { number: 7, body: "On it" } }] },
+      { text: "Done." },
+      { json: { verdict: "retry", feedback: "Say what the comment said." } }, // critic wants a redo
+      { text: "Commented on #7." },
+    ]);
+
+    const paused = await runUntilPause(createRun("Comment on #7"), d);
+    const s = await runUntilPause(resolveApproval(paused, true), d);
+
+    expect(s.status).toBe("done");
+    expect(postComment.execute).toHaveBeenCalledOnce();
+    expect(s.steps[0].attempt).toBe(1);
+    expect(s.steps[0].actionsTaken).toEqual(["post_comment"]);
+    expect(s.steps[0].result).toMatch(/not retried because it already ran post_comment/);
+  });
+
+  it("the critic sees what each tool was called with", async () => {
+    const d = deps([
+      { json: onePlan },
+      { toolCalls: [{ name: "list_issues", input: { repo: "acme/app" } }] },
+      { text: "Found #7." },
+      { json: pass },
+      { text: "final" },
+    ]);
+    const model = d.model as ReturnType<typeof scriptedModel>;
+    await runUntilPause(createRun("goal"), d);
+    const criticCall = model.doGenerateCalls[3];
+    // Parse back out of JSON so the assertion reads like the real prompt text (no escaping).
+    const promptText = JSON.parse(JSON.stringify(criticCall.prompt)) as { content: string | { text?: string }[] }[];
+    const userText = promptText
+      .map((m) => (typeof m.content === "string" ? m.content : m.content.map((p) => p.text ?? "").join("")))
+      .join("\n");
+    expect(userText).toContain('list_issues({"repo":"acme/app"}) → ok:');
+  });
+
+  it("times out a hung tool instead of stalling the run", async () => {
+    const hang: AgentTool<object> = {
+      name: "hang",
+      description: "",
+      inputSchema: z.object({}),
+      execute: () => new Promise(() => {}), // never settles
+    };
+    const d = {
+      ...deps([{ json: onePlan }, { toolCalls: [{ name: "hang", input: {} }] }, { text: "It timed out." }, { json: pass }, { text: "final" }], [hang]),
+      toolTimeoutMs: 20,
+      toolRetry: { attempts: 2, sleep: async () => {} },
+    };
+
+    const s = await runUntilPause(createRun("goal"), d);
+    const result = s.trace.find((e) => e.type === "tool_result");
+    expect(result).toMatchObject({ ok: false, attempts: 2 });
+    expect(result?.type === "tool_result" && result.preview).toMatch(/hang timed out after 20 ms/);
+    expect(s.status).toBe("done");
+  });
+
   it("ends a step that runs out of turns and lets the critic judge it", async () => {
     const d = deps([
       { json: onePlan },

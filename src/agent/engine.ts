@@ -40,6 +40,8 @@ export interface EngineDeps {
   tools: AgentTool[];
   /** Overridable in tests to skip real backoff delays. */
   toolRetry?: RetryOptions;
+  /** Per-attempt limit for one tool call. A hung tool fails (and may be retried) instead of stalling the run. */
+  toolTimeoutMs?: number;
   /** Called with every trace event as it happens (e.g. to stream to a UI). */
   onEvent?: (e: TraceEvent & { at: string }) => void;
 }
@@ -52,6 +54,7 @@ export const DEFAULT_BUDGET: Budget = {
 };
 
 const PREVIEW_CHARS = 300;
+const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 
 export function createRun(goal: string, budget: Partial<Budget> = {}, id = crypto.randomUUID()): RunState {
   return {
@@ -209,7 +212,8 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
       output = { type: "error-text", value: `Invalid input for ${tool.name}: ${parsed.error.message}` };
     } else {
       try {
-        const r = await withRetry(() => tool.execute(parsed.data), deps.toolRetry);
+        const timeoutMs = deps.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+        const r = await withRetry(() => withTimeout(tool.execute(parsed.data), timeoutMs, tool.name), deps.toolRetry);
         attempts = r.attempts;
         output = { type: "json", value: toJson(r.value) };
       } catch (e) {
@@ -219,6 +223,8 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
     }
   }
 
+  if (tool?.risky && output.type === "json") step.actionsTaken.push(call.toolName);
+
   emit(state, deps, {
     type: "tool_result",
     step: state.stepIndex,
@@ -226,6 +232,7 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
     ok: output.type === "json",
     ms: Date.now() - started,
     attempts,
+    inputPreview: truncate(JSON.stringify(call.input ?? null), 600),
     preview: preview(output),
   });
 
@@ -253,9 +260,16 @@ async function review(state: RunState, deps: EngineDeps) {
   step.critique = critique;
   emit(state, deps, { type: "critique", step: state.stepIndex, ...critique });
 
-  if (critique.verdict === "retry" && step.attempt < state.budget.maxAttemptsPerStep) {
+  // Retrying re-runs the whole step. If the step already did something irreversible (sent an
+  // email, posted a comment), that would do it twice — so keep the critic's note and move on.
+  const canRetry = step.actionsTaken.length === 0 && step.attempt < state.budget.maxAttemptsPerStep;
+  if (critique.verdict === "retry" && canRetry) {
     startStep(state, deps, state.stepIndex, step.attempt + 1, critique.feedback);
     return;
+  }
+  if (critique.verdict === "retry") {
+    const why = step.actionsTaken.length > 0 ? `it already ran ${step.actionsTaken.join(", ")}` : "no attempts left";
+    step.result = `${step.result ?? ""}\n\n(Reviewer note, not retried because ${why}: ${critique.feedback})`;
   }
 
   // Passed, or out of retries: move on. (A failed-but-honest result still helps later steps.)
@@ -285,6 +299,7 @@ function startStep(state: RunState, deps: EngineDeps, index: number, attempt = 1
     messages: [{ role: "user", content: executorPrompt(state.goal, state.plan, index, state.steps, feedback) }],
     pendingCalls: [],
     turnResults: [],
+    actionsTaken: [],
   };
   state.stepIndex = index;
   state.status = "executing";
@@ -335,13 +350,25 @@ function emit(state: RunState, deps: Pick<EngineDeps, "onEvent">, event: TraceEv
 function toolLog(state: RunState, step: number): string {
   return state.trace
     .filter((e) => e.type === "tool_result" && e.step === step)
-    .map((e) => e.type === "tool_result" && `- ${e.toolName}: ${e.ok ? "ok" : "error"} — ${e.preview}`)
+    .map((e) => e.type === "tool_result" && `- ${e.toolName}(${e.inputPreview}) → ${e.ok ? "ok" : "error"}: ${e.preview}`)
     .join("\n");
 }
 
 function preview(o: ToolOutput): string {
   const s = o.type === "json" ? JSON.stringify(o.value) : o.type === "execution-denied" ? `denied: ${o.reason ?? ""}` : o.value;
-  return s.length > PREVIEW_CHARS ? `${s.slice(0, PREVIEW_CHARS)}…` : s;
+  return truncate(s, PREVIEW_CHARS);
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, name: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${name} timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 function toJson(v: unknown): JsonValue {

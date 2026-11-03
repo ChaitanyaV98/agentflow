@@ -27,7 +27,9 @@ export async function withRetry<T>(
   const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
 
   let lastError: unknown;
+  let made = 0;
   for (let i = 1; i <= attempts; i++) {
+    made = i;
     try {
       return { value: await fn(), attempts: i };
     } catch (e) {
@@ -38,7 +40,8 @@ export async function withRetry<T>(
       await sleep(delay + Math.random() * delay * 0.25);
     }
   }
+  // Report how many attempts were actually made (1 for a non-retryable error), not the maximum.
   throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), {
-    attempts,
+    attempts: made,
   });
 }

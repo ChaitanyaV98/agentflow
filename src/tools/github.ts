@@ -19,7 +19,11 @@ async function gh(path: string, init: RequestInit = {}): Promise<unknown> {
   };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 
-  const res = await fetch(`${API}${path}`, { ...init, headers: { ...headers, ...init.headers } });
+  const res = await fetch(`${API}${path}`, {
+    ...init,
+    headers: { ...headers, ...init.headers },
+    signal: AbortSignal.timeout(15_000), // a hung connection fails fast and gets retried
+  });
   if (!res.ok) {
     const msg = `GitHub ${res.status}: ${(await res.text()).slice(0, 200)}`;
     // 4xx (except 429 rate limit) means the request itself is wrong — retrying won't help.

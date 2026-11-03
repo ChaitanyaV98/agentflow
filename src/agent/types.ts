@@ -48,6 +48,11 @@ export interface StepRecord {
   pendingCalls: ToolCallRecord[];
   /** Results collected for the latest turn; flushed into `messages` once every call has one. */
   turnResults: ToolResultEntry[];
+  /**
+   * Risky tools that ran successfully in this step (e.g. "send_email"). Once anything is here the
+   * step is never retried: repeating it would repeat the side effect (a second email, comment, …).
+   */
+  actionsTaken: string[];
   result?: string;
   critique?: Critique;
 }
@@ -94,7 +99,17 @@ export type TraceEvent =
   | { type: "step_started"; step: number; title: string; attempt: number }
   | { type: "model_call"; role: AgentRole; step?: number; inputTokens: number; outputTokens: number; ms: number }
   | { type: "tool_call"; step: number; toolName: string; input: unknown }
-  | { type: "tool_result"; step: number; toolName: string; ok: boolean; ms: number; attempts: number; preview: string }
+  | {
+      type: "tool_result";
+      step: number;
+      toolName: string;
+      ok: boolean;
+      ms: number;
+      attempts: number;
+      /** Shortened input and output, for the trace UI and the critic. */
+      inputPreview: string;
+      preview: string;
+    }
   | { type: "approval_requested"; step: number; toolName: string; input: unknown }
   | { type: "approval_resolved"; step: number; toolName: string; approved: boolean }
   | { type: "step_result"; step: number; result: string }
