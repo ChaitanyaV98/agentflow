@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AgentFlow
 
-## Getting Started
+[![CI](https://github.com/ChaitanyaV98/agentflow/actions/workflows/ci.yml/badge.svg)](https://github.com/ChaitanyaV98/agentflow/actions/workflows/ci.yml)
 
-First, run the development server:
+**Describe a goal, and a team of AI agents plans it, does the work with real tools, checks its own
+results, and asks you before doing anything that can't be undone.**
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+> Work in progress. The agent core works today from the terminal; MCP tools, durable runs and the
+> web UI are next (see Roadmap).
+
+## How it works
+
+```
+goal ─► PLANNER ─► steps
+                     │
+          ┌──────────▼──────────┐
+          │ EXECUTOR calls tools │◄─ retry with feedback ─┐
+          └──────────┬──────────┘                         │
+                     ▼                                    │
+                  CRITIC ── "retry" ──────────────────────┘
+                     │ "pass"
+                     ▼
+              next step … ─► WRITER ─► final answer
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Four roles, one job each.** Short, focused prompts work much better on free models than one big prompt.
+- **Human approval for risky tools.** Posting a GitHub comment pauses the run until you say yes or no.
+- **Bad tool calls don't crash the run.** Invalid arguments and tool errors go back to the model as messages it can read and fix.
+- **Budgets.** Each run has a cap on model calls, tokens, turns per step and retries per step, so a confused model can't loop forever.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Why a custom loop instead of the SDK's agent
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The engine is a state machine. A run is a plain JSON object, and `tick(state)` does exactly one unit
+of work (one model call or one tool call) and returns the next state. Because nothing lives only in
+memory, a run can be saved after every tick, resumed after a crash, and paused for hours waiting
+for approval. The Vercel AI SDK's built-in agent loop runs start-to-finish in memory, which makes
+those three things hard.
 
-## Learn More
+## Tech stack
 
-To learn more about Next.js, take a look at the following resources:
+Next.js 16 · TypeScript · Vercel AI SDK · Groq (`openai/gpt-oss-120b`) / Ollama · Zod · Vitest · GitHub Actions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Run it
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+You need Node 24 and a free [Groq API key](https://console.groq.com/keys).
 
-## Deploy on Vercel
+```bash
+cp .env.example .env     # set GROQ_API_KEY (GITHUB_TOKEN optional; needed to post comments)
+npm install
+npm run agent -- "Look at the 5 newest open issues in vercel/swr and tell me which bug to fix first"
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Command | Purpose |
+|---|---|
+| `npm test` | Engine tests with a scripted fake LLM (no API key needed) |
+| `npm run agent -- "<goal>"` | Run an agent in the terminal and watch every step |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Roadmap
+
+- [x] Agent core: planner → executor → critic → writer, typed tools, retries, budgets, approval gate, traces
+- [ ] Tools as MCP servers: GitHub, web search, Postgres, DocMind search
+- [ ] Durable runs in Postgres (resume after crash)
+- [ ] Web UI with live step streaming and approve/deny buttons
+- [ ] End-to-end test, deploy
+
+## License
+
+MIT
