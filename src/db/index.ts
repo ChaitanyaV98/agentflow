@@ -18,6 +18,12 @@ export function getDb(): DB {
   return g.db;
 }
 
+/** The underlying postgres.js client, for LISTEN/NOTIFY (which Drizzle doesn't wrap). */
+export function getSql(): postgres.Sql {
+  getDb();
+  return g.client!;
+}
+
 export async function closeDb() {
   await g.client?.end();
   g.client = undefined;
