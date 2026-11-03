@@ -17,7 +17,8 @@
     "db:migrate": "drizzle-kit migrate",
     "worker": "tsx scripts/worker.ts",
     "runs": "tsx scripts/runs.ts",
-    "test:int": "vitest run --config vitest.int.config.mts"
+    "test:int": "vitest run --config vitest.int.config.mts",
+    "dev:all": "node scripts/dev-all.mjs"
   },
   "dependencies": {
     "@ai-sdk/groq": "^4.0.76",
