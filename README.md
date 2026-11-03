@@ -5,8 +5,7 @@
 **Describe a goal, and a team of AI agents plans it, does the work with real tools, checks its own
 results, and asks you before doing anything that can't be undone.**
 
-> Work in progress. The agent core, MCP tools and durable runs work today from the terminal; the
-> web UI is next (see Roadmap).
+> Work in progress: everything below runs locally. Deployment is next (see Roadmap).
 
 ## How it works
 
@@ -71,6 +70,14 @@ Runs live in Postgres, and any number of workers execute them.
 Trace events are appended to `run_events` in the same transaction as the state snapshot, so the
 live log and the saved state can never disagree.
 
+### Live UI
+
+The run page subscribes to `/api/runs/:id/events` (Server-Sent Events). When a worker saves new
+events it calls `pg_notify` in the same transaction; the route `LISTEN`s and pushes them to the
+browser, with a slow poll as a fallback. Each event carries its database id, so after a dropped
+connection the browser's `Last-Event-ID` resumes exactly where it left off. SSE rather than
+WebSockets because updates only flow one way (actions like Approve are plain server actions).
+
 ### Why a custom loop instead of the SDK's agent
 
 The engine is a state machine. A run is a plain JSON object, and `tick(state)` does exactly one unit
@@ -92,6 +99,9 @@ You need Node 24, Docker and a free [Groq API key](https://console.groq.com/keys
 cp .env.example .env     # set GROQ_API_KEY; GITHUB_TOKEN and TAVILY_API_KEY are optional
 npm install
 npm run db:up && npm run db:migrate     # Postgres on :5435 with a sample shop database
+
+# Web UI + a worker, together: open http://localhost:3000
+npm run dev:all
 
 # Quick: run one agent in this terminal
 npm run agent -- "Look at the 5 newest open issues in vercel/swr and tell me which bug to fix first"
@@ -119,7 +129,7 @@ lease expires it picks the run up from the last saved step.
 - [x] Tools as MCP servers: GitHub, web search + page fetch, email
 - [x] Postgres MCP server (read-only SQL)
 - [x] Durable runs in Postgres: leases, crash recovery, at-most-once risky tools, cost budget
-- [ ] Web UI with live step streaming and approve/deny buttons
+- [x] Web UI: live step streaming over SSE (Postgres LISTEN/NOTIFY), approve/deny card
 - [ ] End-to-end test, deploy
 
 ## License
