@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { TimedTraceEvent } from "@/agent/types";
@@ -11,20 +11,25 @@ import { StatusBadge } from "../../status-badge";
 
 type Connection = "connecting" | "live" | "reconnecting" | "closed";
 
+const RUNNABLE = new Set(["planning", "executing", "reviewing", "summarizing"]);
+const STALL_MS = 45_000;
+
 /** Live view of one run: subscribes to the SSE stream and renders the trace as it grows. */
 export function RunView({ initial }: { initial: RunSummary }) {
   const [run, setRun] = useState(initial);
   const [events, setEvents] = useState<TimedTraceEvent[]>([]);
   const [conn, setConn] = useState<Connection>("connecting");
-  const [startedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
+  const lastEventAt = useRef(0);
 
   useEffect(() => {
     // Finished runs connect too: the server sends the whole trace, then closes the stream.
     const es = new EventSource(`/api/runs/${initial.id}/events`);
     es.onopen = () => setConn("live");
     es.onerror = () => setConn(es.readyState === EventSource.CLOSED ? "closed" : "reconnecting");
-    es.addEventListener("trace", (m) => setEvents((prev) => [...prev, JSON.parse(m.data)]));
+    es.addEventListener("trace", (m) => {
+      lastEventAt.current = Date.now();
+      setEvents((prev) => [...prev, JSON.parse(m.data)]);
+    });
     es.addEventListener("status", (m) => {
       const s = JSON.parse(m.data) as RunSummary;
       setRun(s);
@@ -37,15 +42,21 @@ export function RunView({ initial }: { initial: RunSummary }) {
     return () => es.close();
   }, [initial.id, initial.status]);
 
-  // Tick a clock while we wait for a worker, to show the "no worker" hint.
+  // Keep the run moving. While it's runnable, ask the server to work on it now, and again whenever
+  // it has been quiet for a while (e.g. the previous serverless invocation hit its time limit).
+  // The server's lease makes extra requests harmless: only one ever works on the run.
   useEffect(() => {
-    if (events.length > 0) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    if (!RUNNABLE.has(run.status)) return;
+    const kick = () => {
+      lastEventAt.current = Date.now();
+      void fetch(`/api/runs/${run.id}/drive`, { method: "POST" }).catch(() => {});
+    };
+    kick();
+    const t = setInterval(() => Date.now() - lastEventAt.current > STALL_MS && kick(), 10_000);
     return () => clearInterval(t);
-  }, [events.length]);
+  }, [run.id, run.status]);
 
   const groups = useMemo(() => groupByStep(events), [events]);
-  const noWorker = run.status === "planning" && events.length === 0 && now - startedAt > 8000;
   const tokens = run.usage.inputTokens + run.usage.outputTokens;
 
   return (
@@ -68,13 +79,6 @@ export function RunView({ initial }: { initial: RunSummary }) {
           <Stat label="Est. cost" value={`$${run.usage.costUsd.toFixed(4)} / $${run.budget.maxCostUsd}`} />
         </dl>
       </header>
-
-      {noWorker && (
-        <Notice tone="amber">
-          No worker has picked up this run yet. Start one with <code className="font-mono">npm run worker</code> (or run
-          everything with <code className="font-mono">npm run dev:all</code>).
-        </Notice>
-      )}
 
       {run.pending && <ApprovalCard runId={run.id} pending={run.pending} />}
 

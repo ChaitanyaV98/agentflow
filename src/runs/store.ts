@@ -11,10 +11,12 @@ import { runEvents, runs } from "@/db/schema";
  *             transaction as the state, so the event log and the snapshot can never disagree.
  *  - claim(): a worker takes the next runnable run with FOR UPDATE SKIP LOCKED, so many workers
  *             can poll the same table without ever picking the same run.
- *  - leases:  a claim lasts LEASE_MS and every save renews it. If the worker dies, the lease
+ *  - leases:  a claim lasts LEASE_MS (90 s) and every save renews it. If the worker dies, the lease
  *             runs out and the run becomes claimable again, resuming from its last saved state.
  */
-export const LEASE_MS = 30_000;
+// Longer than the slowest single step (a free-tier model call can take 30–60 s), so a healthy
+// worker never loses its lease mid-step. A crashed worker's run waits this long before takeover.
+export const LEASE_MS = 90_000;
 
 /** States a worker should pick up. `awaiting_approval` waits for a human; done/failed are final. */
 const RUNNABLE = ["planning", "executing", "reviewing", "summarizing"] as const;
@@ -98,6 +100,18 @@ export async function claimNextRun(workerId: string, leaseMs = LEASE_MS): Promis
       limit 1
       for update skip locked
     )
+    returning state, version
+  `);
+  return rows[0] ? { state: rows[0].state, version: rows[0].version } : null;
+}
+
+/** Claim one specific run, if it's runnable and nobody holds a live lease on it. */
+export async function claimRun(id: string, workerId: string, leaseMs = LEASE_MS): Promise<StoredRun | null> {
+  const rows = await getDb().execute<{ state: RunState; version: number }>(sql`
+    update ${runs} set lease_owner = ${workerId}, lease_expires_at = now() + ${`${leaseMs} milliseconds`}::interval
+    where id = ${id}
+      and status in (${sql.join(RUNNABLE.map((s) => sql`${s}`), sql`, `)})
+      and (lease_expires_at is null or lease_expires_at < now())
     returning state, version
   `);
   return rows[0] ? { state: rows[0].state, version: rows[0].version } : null;

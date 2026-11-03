@@ -6,7 +6,7 @@ import { scriptedModel, type Reply } from "@/agent/test-helpers";
 import type { AgentTool, RunState } from "@/agent/types";
 import { closeDb, getDb } from "@/db";
 import { runs } from "@/db/schema";
-import { approveRun, claimNextRun, createStoredRun, eventsAfter, loadRun, saveRun, StaleRunError } from "./store";
+import { approveRun, claimNextRun, claimRun, createStoredRun, eventsAfter, loadRun, saveRun, StaleRunError } from "./store";
 import { processRun } from "./worker";
 
 const GOAL = "int-test:";
@@ -64,6 +64,12 @@ describe("run store", () => {
     expect(a && b).toBeTruthy();
     expect(a!.state.id).not.toBe(b!.state.id);
     expect(await claimNextRun("w3")).toBeNull(); // both leased
+  });
+
+  it("many concurrent drive requests for one run: exactly one claims it", async () => {
+    const { state } = await createStoredRun(`${GOAL}drive`);
+    const results = await Promise.all(Array.from({ length: 8 }, (_, i) => claimRun(state.id, `web:${i}`)));
+    expect(results.filter(Boolean)).toHaveLength(1);
   });
 
   it("an expired lease lets another worker take over, and the old worker can no longer save", async () => {
