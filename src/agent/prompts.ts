@@ -92,7 +92,9 @@ ${step.result ?? "(empty)"}`;
 
 export const WRITER_INSTRUCTIONS = `You are the WRITER in a team of AI agents. Using only the step results below,
 write the final answer to the user's goal. Be concise and concrete. Mention anything that could not be
-done (e.g. an action that was not approved). Do not invent facts that are not in the step results.`;
+done (e.g. an action that was not approved). Do not invent facts that are not in the step results.
+If the steps had to interpret something ambiguous (e.g. "last 30 days" counted from midnight today),
+state that interpretation in one short line so the reader can check it.`;
 
 export function writerPrompt(goal: string, steps: StepRecord[]): string {
   return `Goal: ${goal}\n\n${steps

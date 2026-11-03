@@ -79,10 +79,10 @@ async function ask(question: string): Promise<boolean> {
 }
 
 async function main() {
-  const { model, id } = getChatModel();
+  const { model, id, pricing } = getChatModel();
   const hub = await connectStdio(defaultServers());
   for (const s of hub.servers) console.log(dim(`mcp ${s.name}: ${s.tools.join(", ")}`));
-  const deps = { model, tools: hub.tools, onEvent: print };
+  const deps = { model, pricing, tools: hub.tools, onEvent: print };
 
   console.log(dim(`model: ${id}`));
   let state: RunState = await runUntilPause(createRun(goal), deps);
@@ -94,8 +94,8 @@ async function main() {
   await hub.close();
 
   if (state.finalAnswer) console.log(`\n${bold("Answer")}\n${state.finalAnswer}`);
-  const { modelCalls, inputTokens, outputTokens } = state.usage;
-  console.log(dim(`\n${state.status} · ${modelCalls} model calls · ${inputTokens + outputTokens} tokens`));
+  const { modelCalls, inputTokens, outputTokens, costUsd } = state.usage;
+  console.log(dim(`\n${state.status} · ${modelCalls} model calls · ${inputTokens + outputTokens} tokens · ~$${costUsd.toFixed(4)} at list price`));
   process.exitCode = state.status === "done" ? 0 : 1;
 }
 

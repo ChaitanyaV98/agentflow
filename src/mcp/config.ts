@@ -17,6 +17,7 @@ export function defaultServers(): StdioServerConfig[] {
   return [
     { name: "github", command: tsx, args: server("github.ts"), env: pick("GITHUB_TOKEN") },
     { name: "web", command: tsx, args: server("web.ts"), env: pick("TAVILY_API_KEY") },
+    { name: "postgres", command: tsx, args: server("postgres.ts"), env: pick("POSTGRES_READONLY_URL") },
     {
       name: "email",
       command: tsx,

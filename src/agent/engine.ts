@@ -16,6 +16,7 @@ import type {
   AgentTool,
   Budget,
   JsonValue,
+  Pricing,
   RunState,
   StepRecord,
   ToolOutput,
@@ -44,6 +45,13 @@ export interface EngineDeps {
   toolTimeoutMs?: number;
   /** Called with every trace event as it happens (e.g. to stream to a UI). */
   onEvent?: (e: TraceEvent & { at: string }) => void;
+  /** Model list price, for the cost budget. Omit to count cost as $0. */
+  pricing?: Pricing;
+  /**
+   * Persist the state *inside* a tick, right before a risky tool runs (the durable worker saves to
+   * Postgres here). Without it, a crash mid-action can't be told apart from "not started yet".
+   */
+  checkpoint?: (s: RunState) => Promise<void>;
 }
 
 export const DEFAULT_BUDGET: Budget = {
@@ -51,6 +59,7 @@ export const DEFAULT_BUDGET: Budget = {
   maxTokens: 150_000,
   maxTurnsPerStep: 6,
   maxAttemptsPerStep: 2,
+  maxCostUsd: 0.05,
 };
 
 const PREVIEW_CHARS = 300;
@@ -64,7 +73,7 @@ export function createRun(goal: string, budget: Partial<Budget> = {}, id = crypt
     plan: [],
     stepIndex: 0,
     steps: [],
-    usage: { modelCalls: 0, inputTokens: 0, outputTokens: 0 },
+    usage: { modelCalls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
     budget: { ...DEFAULT_BUDGET, ...budget },
     trace: [],
   };
@@ -204,6 +213,13 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
     output = { type: "error-text", value: `Unknown tool "${call.toolName}". Available: ${deps.tools.map((t) => t.name).join(", ")}` };
   } else if (call.approval === "denied") {
     output = { type: "execution-denied", reason: call.denyReason };
+  } else if (tool.risky && call.startedAt) {
+    // A previous process started this action and died before recording the result.
+    output = {
+      type: "error-text",
+      value: `Outcome unknown: AgentFlow stopped while ${tool.name} was running (started ${call.startedAt}). ` +
+        "It was NOT run again, to avoid doing it twice. Tell the user to check whether it happened.",
+    };
   } else {
     // Validate the model's arguments ourselves. A bad call goes back to the model as an error
     // it can read and correct, instead of crashing the run.
@@ -211,6 +227,10 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
     if (!parsed.success) {
       output = { type: "error-text", value: `Invalid input for ${tool.name}: ${parsed.error.message}` };
     } else {
+      if (tool.risky) {
+        call.startedAt = new Date().toISOString();
+        await deps.checkpoint?.(state);
+      }
       try {
         const timeoutMs = deps.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
         const r = await withRetry(() => withTimeout(tool.execute(parsed.data), timeoutMs, tool.name), deps.toolRetry);
@@ -322,6 +342,7 @@ async function callModel(state: RunState, deps: EngineDeps, role: AgentRole, arg
   const { usage, budget } = state;
   if (usage.modelCalls >= budget.maxModelCalls) throw new BudgetExceededError(`${budget.maxModelCalls} model calls`);
   if (usage.inputTokens + usage.outputTokens >= budget.maxTokens) throw new BudgetExceededError(`${budget.maxTokens} tokens`);
+  if (usage.costUsd >= budget.maxCostUsd) throw new BudgetExceededError(`$${budget.maxCostUsd} estimated cost`);
 
   const started = Date.now();
   const result = await generateText({ model: deps.model, temperature: 0, maxRetries: 3, ...args } as Parameters<typeof generateText>[0]);
@@ -330,6 +351,9 @@ async function callModel(state: RunState, deps: EngineDeps, role: AgentRole, arg
   usage.modelCalls++;
   usage.inputTokens += inputTokens;
   usage.outputTokens += outputTokens;
+  if (deps.pricing) {
+    usage.costUsd += (inputTokens * deps.pricing.inputPerM + outputTokens * deps.pricing.outputPerM) / 1e6;
+  }
   emit(state, deps, {
     type: "model_call",
     role,

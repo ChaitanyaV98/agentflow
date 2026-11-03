@@ -251,6 +251,17 @@ describe("agent engine", () => {
     expect(s.status).toBe("done");
   });
 
+  it("tracks estimated cost and stops at the cost budget", async () => {
+    // Each scripted call uses 100 input + 20 output tokens. At $1,000/M in and $5,000/M out
+    // that is $0.10 + $0.10 = $0.20 per call, so a $0.50 cap allows 3 calls.
+    const d = { ...deps([{ json: onePlan }, ...Array.from({ length: 5 }, () => ({ toolCalls: [{ name: "list_issues", input: { repo: "a/b" } }] }))]), pricing: { inputPerM: 1000, outputPerM: 5000 } };
+    const s = await runUntilPause(createRun("goal", { maxCostUsd: 0.5, maxTurnsPerStep: 100 }), d);
+    expect(s.status).toBe("failed");
+    expect(s.error).toMatch(/Budget exceeded: \$0.5 estimated cost/);
+    expect(s.usage.modelCalls).toBe(3);
+    expect(s.usage.costUsd).toBeCloseTo(0.6);
+  });
+
   it("ends a step that runs out of turns and lets the critic judge it", async () => {
     const d = deps([
       { json: onePlan },

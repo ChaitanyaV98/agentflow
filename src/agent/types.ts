@@ -28,6 +28,12 @@ export interface ToolCallRecord {
   /** Set once a human has decided on a risky call. */
   approval?: "approved" | "denied";
   denyReason?: string;
+  /**
+   * Set (and saved) just before a risky tool runs. If a run is resumed and finds this set on a call
+   * that has no result, the process died mid-action: we report "outcome unknown" instead of running
+   * it again. Risky tools are at-most-once; read-only tools are simply re-run (at-least-once).
+   */
+  startedAt?: string;
 }
 
 export interface Critique {
@@ -86,12 +92,22 @@ export interface Budget {
   maxTurnsPerStep: number;
   /** Executor attempts per step (1 + critic retries). */
   maxAttemptsPerStep: number;
+  /** Estimated spend cap in USD (tokens × the model's list price). */
+  maxCostUsd: number;
 }
 
 export interface Usage {
   modelCalls: number;
   inputTokens: number;
   outputTokens: number;
+  /** Estimated from list prices; on Groq's free tier the real cost is $0. */
+  costUsd: number;
+}
+
+/** USD per 1M tokens. */
+export interface Pricing {
+  inputPerM: number;
+  outputPerM: number;
 }
 
 export type TraceEvent =

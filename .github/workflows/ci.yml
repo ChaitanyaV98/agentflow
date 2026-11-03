@@ -20,3 +20,33 @@ jobs:
       - run: npm run typecheck
       - run: npm test # agent tests use a scripted fake LLM: no API key needed
       - run: npm run build
+
+  integration:
+    name: Durable runs + read-only SQL (real Postgres)
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: agentflow
+          POSTGRES_PASSWORD: agentflow
+          POSTGRES_DB: agentflow
+        ports: ["5435:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentflow -d agentflow"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://agentflow:agentflow@localhost:5435/agentflow
+      POSTGRES_READONLY_URL: postgres://agentflow_reader:agentflow_reader@localhost:5435/agentflow
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Sample data, read-only role, migrations
+        run: |
+          PGPASSWORD=agentflow psql -h localhost -p 5435 -U agentflow -d agentflow -v ON_ERROR_STOP=1 -f docker/init.sql
+          npm run db:migrate
+      - run: npm run test:int
