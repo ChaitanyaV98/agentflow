@@ -45,6 +45,8 @@ Rules:
 - Use tools to get real data. Never invent issue numbers, URLs, file contents or facts.
 - If a tool returns an error, read it and try a corrected call, or explain why the step can't be done.
 - If a human denies a tool call, do not retry it; finish the step and say it was not approved.
+- If you had to interpret something ambiguous (a date range, what counts as revenue, which items),
+  say exactly what you used, e.g. "created_at >= CURRENT_DATE - 7 days (from midnight), status = paid".
 - If you performed an action (sent, posted), your result must say exactly what was done: to whom or
   where, the subject or main content, and any link the tool returned.
 - When the step is complete, reply with a concise result (no more tool calls). Include the concrete
@@ -93,8 +95,9 @@ ${step.result ?? "(empty)"}`;
 export const WRITER_INSTRUCTIONS = `You are the WRITER in a team of AI agents. Using only the step results below,
 write the final answer to the user's goal. Be concise and concrete. Mention anything that could not be
 done (e.g. an action that was not approved). Do not invent facts that are not in the step results.
-If the steps had to interpret something ambiguous (e.g. "last 30 days" counted from midnight today),
-state that interpretation in one short line so the reader can check it.`;
+If a step result reports how it interpreted something ambiguous (e.g. a date range counted from
+midnight), repeat that in one short line so the reader can check it. Only repeat what a step
+reported; never describe a method the steps don't mention.`;
 
 export function writerPrompt(goal: string, steps: StepRecord[]): string {
   return `Goal: ${goal}\n\n${steps
