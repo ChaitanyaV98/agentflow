@@ -15,6 +15,10 @@ import { isFinished, summarize } from "@/runs/view";
  * Reconnects: EventSource sends `Last-Event-ID` automatically, and we resume from that event, so a
  * dropped connection never loses or repeats a step.
  */
+// Serverless functions have a time limit; when it cuts the stream, EventSource reconnects with
+// Last-Event-ID and carries on, so nothing is lost.
+export const maxDuration = 300;
+
 const POLL_MS = 3000;
 const HEARTBEAT_MS = 15_000;
 

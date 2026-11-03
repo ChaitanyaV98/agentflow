@@ -76,7 +76,7 @@ ON CONFLICT DO NOTHING;
 
 -- The agent's read-only role.
 CREATE ROLE agentflow_reader LOGIN PASSWORD 'agentflow_reader';
-GRANT CONNECT ON DATABASE agentflow TO agentflow_reader;
+DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO agentflow_reader', current_database()); END $$;
 GRANT USAGE ON SCHEMA shop TO agentflow_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA shop TO agentflow_reader;
 ALTER ROLE agentflow_reader SET default_transaction_read_only = on;

@@ -12,7 +12,8 @@ export function getDb(): DB {
   if (!g.db) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set — copy .env.example to .env");
-    g.client = postgres(url, { max: 10, onnotice: () => {} });
+    // Serverless: many short-lived instances, so keep each one's pool small.
+    g.client = postgres(url, { max: process.env.VERCEL ? 3 : 10, onnotice: () => {} });
     g.db = drizzle(g.client, { schema });
   }
   return g.db;
