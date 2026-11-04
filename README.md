@@ -5,7 +5,10 @@
 **Describe a goal, and a team of AI agents plans it, does the work with real tools, checks its own
 results, and asks you before doing anything that can't be undone.**
 
-> Work in progress: everything below runs locally. Deployment is next (see Roadmap).
+![AgentFlow demo: a goal is planned into steps, a SQL step runs live, the run pauses for approval before sending an email, then the answer appears](docs/demo.gif)
+
+**Live demo: [agentflow-chaitanya.vercel.app](https://agentflow-chaitanya.vercel.app)**. Try one of the example goals.
+Limits: 5 runs per hour per visitor; emails go to a test inbox (nothing is delivered); GitHub actions can't post.
 
 ## How it works
 
@@ -26,6 +29,10 @@ goal ─► PLANNER ─► steps
 - **Human approval for risky tools.** Posting a GitHub comment pauses the run until you say yes or no.
 - **Bad tool calls don't crash the run.** Invalid arguments and tool errors go back to the model as messages it can read and fix.
 - **Budgets.** Each run has a cap on model calls, tokens, turns per step and retries per step, so a confused model can't loop forever.
+- **Each step gets only the tools it needs.** The planner names them; the engine offers and accepts only those.
+  Found while recording the demo: an executor emailed the summary during the "calculate" step, and the
+  "email" step then tried to send it again. Now a step can't reach a tool that isn't its job, and later
+  steps are told which actions already happened.
 
 ### Tools come from MCP servers
 
@@ -70,6 +77,15 @@ Runs live in Postgres, and any number of workers execute them.
 Trace events are appended to `run_events` in the same transaction as the state snapshot, so the
 live log and the saved state can never disagree.
 
+### Running on serverless (Vercel), with no worker
+
+A long-lived worker needs a paid always-on host, so the deployed app runs agents inside web requests.
+The run page calls `POST /api/runs/:id/drive` whenever its run is runnable and has gone quiet. That
+route claims the run with a lease and keeps executing steps in `after()` for up to 4 minutes (saving
+each one), then hands the run back. The next request continues from the saved state. Many requests
+at once are harmless: only one can hold the lease. On the web, MCP servers run in-process over MCP's
+in-memory transport (same protocol and code); the CLI worker still runs one process per server.
+
 ### Live UI
 
 The run page subscribes to `/api/runs/:id/events` (Server-Sent Events). When a worker saves new
@@ -89,7 +105,7 @@ those three things hard.
 ## Tech stack
 
 Next.js 16 · TypeScript · Model Context Protocol (MCP) · Vercel AI SDK · Groq (`openai/gpt-oss-120b`) / Ollama ·
-PostgreSQL 17 · Drizzle ORM · Zod · Vitest · Docker · GitHub Actions
+PostgreSQL 17 · Drizzle ORM · Zod · Vitest · Playwright · Docker · GitHub Actions · Vercel · Neon
 
 ## Run it
 
@@ -120,6 +136,7 @@ lease expires it picks the run up from the last saved step.
 |---|---|
 | `npm test` | Engine, MCP and tool tests with a scripted fake LLM (no API key needed) |
 | `npm run test:int` | Durable-run and SQL-safety tests against the real database |
+| `npm run test:e2e` | Browser tests (Playwright): start a run, approve or deny, see the answer. Uses `LLM_PROVIDER=mock` |
 | `npm run agent -- "<goal>"` | Run an agent in the terminal and watch every step |
 | `npm run agent -- --approve=no "<goal>"` | Same, answering every approval automatically (yes/no) |
 
@@ -130,7 +147,7 @@ lease expires it picks the run up from the last saved step.
 - [x] Postgres MCP server (read-only SQL)
 - [x] Durable runs in Postgres: leases, crash recovery, at-most-once risky tools, cost budget
 - [x] Web UI: live step streaming over SSE (Postgres LISTEN/NOTIFY), approve/deny card
-- [ ] End-to-end test, deploy
+- [x] End-to-end browser tests, deploy (Vercel + Neon), demo GIF
 
 ## License
 
