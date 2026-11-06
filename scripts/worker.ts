@@ -4,7 +4,7 @@
  *   npm run worker            # start one (start several in different terminals to see SKIP LOCKED at work)
  *
  * Ctrl+C once: finish the current step, save, hand the run back. Kill -9 it instead and start it
- * again: the run resumes from its last saved step once the 30 s lease expires.
+ * again: the run resumes from its last saved step once the 90 s lease expires.
  */
 import "dotenv/config";
 import { hostname } from "node:os";

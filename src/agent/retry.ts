@@ -7,6 +7,8 @@
  * Errors marked `retryable: false` (e.g. 404, bad input) fail immediately — retrying can't fix them.
  *
  * Note: LLM calls are retried by the AI SDK itself (`maxRetries`), so this is only used for tools.
+ * And only for read-only tools: the engine never retries a risky tool (send_email, post_comment…),
+ * because a failure doesn't prove the side effect didn't happen, and a retry could repeat it.
  */
 export interface RetryOptions {
   attempts?: number;

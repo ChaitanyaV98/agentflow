@@ -55,7 +55,7 @@ adding a server, not changing the agent.
   refuses private and local addresses, so a malicious page or issue can't steer the agent at
   `localhost` or a cloud metadata endpoint.
 - **Errors keep their meaning across processes.** A server says whether a failure is worth retrying
-  (a 503 is, a 404 isn't), and the client retries only those.
+  (a 503 is, a 404 isn't), and the client retries only those, and only for read-only tools.
 - **SQL can't write, four times over.** The SQL tool connects as a SELECT-only role, whose sessions
   are read-only with a 5 s timeout; each query also runs in a `READ ONLY` transaction, wrapped as a
   subquery with a row limit. Integration tests try `DELETE`, stacked statements, a data-modifying
@@ -69,9 +69,9 @@ Runs live in Postgres, and any number of workers execute them.
 |---|---|
 | A worker crashes mid-run | State is saved after every step. A restarted worker resumes from the last save; finished model calls are not repeated. |
 | Two workers pick the same run | Claims use `FOR UPDATE SKIP LOCKED`: concurrent workers always get different runs. |
-| A dead worker holds a run forever | Claims are 30 s **leases**, renewed on every save. When a worker dies, its lease expires and another worker takes over. |
+| A dead worker holds a run forever | Claims are 90 s **leases**, renewed on every save. When a worker dies, its lease expires and another worker takes over. |
 | A slow, stale worker overwrites newer state | **Optimistic concurrency**: every save says which version it builds on, and fails if someone saved first. |
-| Crash *while* sending an email: send it again? | **No.** Before a risky tool runs, the call is marked started and saved. On resume, a started-but-unfinished risky call is reported as "outcome unknown, check manually", never re-run. Risky tools are at-most-once; read-only tools are simply re-run. |
+| Crash *while* sending an email: send it again? | **No.** Before a risky tool runs, the call is marked started and saved. On resume, a started-but-unfinished risky call is reported as "outcome unknown, check manually", never re-run. Risky tools are at-most-once: they are also never retried after an error (a 503 doesn't prove the email wasn't sent). Read-only tools are retried with backoff and simply re-run. |
 | Cost | Each run has caps on model calls, tokens, turns, retries and **estimated USD** (tokens × list price). |
 
 Trace events are appended to `run_events` in the same transaction as the state snapshot, so the
@@ -129,7 +129,7 @@ npm run runs -- list                    # status, cost, which worker holds it
 npm run runs -- approve <id>            # answer a pending approval
 ```
 
-To see crash recovery: kill the worker (`kill -9`) mid-run and start it again. After the 30 s
+To see crash recovery: kill the worker (`kill -9`) mid-run and start it again. After the 90 s
 lease expires it picks the run up from the last saved step.
 
 | Command | Purpose |

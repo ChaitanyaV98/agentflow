@@ -41,7 +41,7 @@ export interface EngineDeps {
   tools: AgentTool[];
   /** Overridable in tests to skip real backoff delays. */
   toolRetry?: RetryOptions;
-  /** Per-attempt limit for one tool call. A hung tool fails (and may be retried) instead of stalling the run. */
+  /** Per-attempt limit for one tool call. A hung tool fails (read-only tools may be retried) instead of stalling the run. */
   toolTimeoutMs?: number;
   /** Called with every trace event as it happens (e.g. to stream to a UI). */
   onEvent?: (e: TraceEvent & { at: string }) => void;
@@ -237,7 +237,11 @@ async function runNextToolCall(state: RunState, step: StepRecord, deps: EngineDe
       }
       try {
         const timeoutMs = deps.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
-        const r = await withRetry(() => withTimeout(tool.execute(parsed.data), timeoutMs, tool.name), deps.toolRetry);
+        const once = () => withTimeout(tool.execute(parsed.data), timeoutMs, tool.name);
+        // Only read-only tools are retried. A risky tool that fails (a 503, a timeout…) may still
+        // have done its work — the email may have gone out before the error came back — so trying
+        // again could do it twice. It runs exactly once; the model sees the error and can decide.
+        const r = tool.risky ? { value: await once(), attempts: 1 } : await withRetry(once, deps.toolRetry);
         attempts = r.attempts;
         output = { type: "json", value: toJson(r.value) };
       } catch (e) {

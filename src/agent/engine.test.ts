@@ -168,6 +168,39 @@ describe("agent engine", () => {
     expect(s.steps[0].messages.filter((m) => m.role === "tool")).toHaveLength(1);
   });
 
+  it("never retries a risky tool in-process, even on a retryable error (no duplicate emails)", async () => {
+    // The 503 may arrive after the email already went out, so a retry could send it twice.
+    const sendEmail: AgentTool<object> = {
+      name: "send_email",
+      description: "",
+      inputSchema: z.object({}),
+      risky: true,
+      execute: vi.fn(async () => {
+        throw new Error("503 upstream");
+      }),
+    };
+    const d = deps(
+      [
+        { json: { steps: [{ title: "Email", instructions: "Send it", tools: ["send_email"] }] } },
+        { toolCalls: [{ name: "send_email", input: {} }] },
+        { text: "The email failed." },
+        { json: pass },
+        { text: "final" },
+      ],
+      [sendEmail],
+    );
+
+    const paused = await runUntilPause(createRun("goal"), d);
+    const s = await runUntilPause(resolveApproval(paused, true), d);
+
+    expect(sendEmail.execute).toHaveBeenCalledOnce();
+    const result = s.trace.find((e) => e.type === "tool_result");
+    expect(result).toMatchObject({ toolName: "send_email", ok: false, attempts: 1 });
+    expect(result?.type === "tool_result" && result.preview).toMatch(/503 upstream/);
+    expect(s.steps[0].actionsTaken).toEqual([]);
+    expect(s.status).toBe("done");
+  });
+
   it("the critic can send a step back for another attempt", async () => {
     const d = deps([
       { json: onePlan },

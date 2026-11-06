@@ -37,7 +37,8 @@ export interface ToolCallRecord {
   /**
    * Set (and saved) just before a risky tool runs. If a run is resumed and finds this set on a call
    * that has no result, the process died mid-action: we report "outcome unknown" instead of running
-   * it again. Risky tools are at-most-once; read-only tools are simply re-run (at-least-once).
+   * it again. Risky tools are at-most-once (never retried, not even in-process after an error);
+   * read-only tools are simply re-run (at-least-once).
    */
   startedAt?: string;
 }
